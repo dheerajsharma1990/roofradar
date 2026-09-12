@@ -7,6 +7,7 @@ with route (from → to), altitude, speed, heading and climb rate.
 - Routes from [hexdb.io](https://hexdb.io) and [adsbdb](https://www.adsbdb.com), airlines from adsbdb (cached per callsign)
 - Zero npm dependencies — Node 18+ built-ins only, Leaflet from CDN in the browser
 - Smooth motion between polls via dead reckoning, altitude-coloured icons, trails
+- Search radius follows the zoom: whatever fits on screen around the house (default 5 km) up to `radiusKm`; the server always tracks the full radius so zooming out is instant
 - Click a flight → great-circle route line origin → plane → destination ("fit route" zooms to it)
 
 ## Run

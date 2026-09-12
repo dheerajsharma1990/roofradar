@@ -2,10 +2,16 @@
 
 const KT_TO_KMH = 1.852;
 const FT_TO_M = 0.3048;
-const state = { config: null, planes: new Map(), selected: null, lastTs: 0, hideGround: true, lastList: [] };
+const state = { config: null, planes: new Map(), selected: null, lastTs: 0, hideGround: true, lastList: [], viewRadiusKm: 0 };
+const DEFAULT_VIEW_KM = 5;
+const regionNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
+function countryName(iso) {
+  if (!iso) return '';
+  try { return regionNames?.of(iso.toUpperCase()) || iso; } catch { return iso; }
+}
 
 // ---------- map ----------
-const map = L.map('map', { zoomControl: true, attributionControl: true });
+const map = L.map('map', { zoomControl: true, attributionControl: true, zoomSnap: 0.1, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 });
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   className: 'dark-tiles',
@@ -35,6 +41,27 @@ function drawHouse(home) {
   for (const r of [5, 10, 20]) {
     if (r < state.config.radiusKm) L.circle([home.lat, home.lon], { radius: r * 1000, color: '#4fc3f7', weight: 1, opacity: 0.35, dashArray: '2 6', fill: false }).addTo(layers.house);
   }
+  viewRing = L.circle([home.lat, home.lon], { radius: 1000, color: '#4fc3f7', weight: 1.5, opacity: 0.8, fill: true, fillColor: '#4fc3f7', fillOpacity: 0.04, interactive: false }).addTo(layers.house);
+}
+
+// ---------- search radius follows the zoom level ----------
+// The server always tracks the full config radius; the browser only shows what
+// fits on screen: half the smaller viewport dimension, capped at the max radius.
+let viewRing = null;
+function viewRadiusKm() {
+  const b = map.getBounds(), c = map.getCenter();
+  const halfW = c.distanceTo(L.latLng(c.lat, b.getEast())) / 1000;
+  const halfH = c.distanceTo(L.latLng(b.getNorth(), c.lng)) / 1000;
+  return Math.min(state.config.radiusKm, Math.min(halfW, halfH));
+}
+function updateViewRadius() {
+  state.viewRadiusKm = viewRadiusKm();
+  document.getElementById('stat-radius').textContent = state.viewRadiusKm < 10 ? state.viewRadiusKm.toFixed(1) : Math.round(state.viewRadiusKm);
+  if (viewRing) viewRing.setRadius(state.viewRadiusKm * 1000);
+}
+function viewRadius(km) {
+  const { home } = state.config;
+  map.fitBounds(L.latLng(home.lat, home.lon).toBounds(km * 2000), { padding: [0, 0] });
 }
 
 // ---------- plane icon ----------
@@ -66,11 +93,11 @@ function applyUpdate(data) {
   }
   state.lastTs = data.ts;
   document.getElementById('status').className = 'stat status ' + (data.error ? 'bad' : 'ok');
-  document.getElementById('status').title = data.error || `live via ${data.source}`;
+  if (data.source !== 'view') document.getElementById('status').title = data.error || `live via ${data.source}`;
 
   const seen = new Set();
   state.lastList = data.aircraft;
-  const visible = data.aircraft.filter((ac) => !(state.hideGround && ac.onGround));
+  const visible = data.aircraft.filter((ac) => !(state.hideGround && ac.onGround) && ac.distKm <= state.viewRadiusKm + 0.05);
   for (const ac of visible) {
     seen.add(ac.hex);
     let p = state.planes.get(ac.hex);
@@ -150,7 +177,7 @@ function greatCircle(a, b, n = 64) {
 }
 function airportMarker(ap, label) {
   return L.circleMarker([ap.lat, ap.lon], { radius: 6, color: '#fff', weight: 2, fillColor: '#4fc3f7', fillOpacity: 1 })
-    .bindTooltip(`${label} ${ap.iata || ap.icao} · ${ap.name || ''}`, { permanent: true, direction: 'top', offset: [0, -8], className: 'plane-label' });
+    .bindTooltip(`${label} ${ap.iata || ap.icao} · ${ap.name || ''}${ap.country ? ' · ' + countryName(ap.country) : ''}`, { permanent: true, direction: 'top', offset: [0, -8], className: 'plane-label' });
 }
 function drawRoute(p) {
   layers.route.clearLayers();
@@ -184,7 +211,8 @@ function fmtAirport(a, inferredFrom) {
     const db = inferredFrom ? (inferredFrom.iata || inferredFrom.icao) : '?';
     tag = ` <span class="inferred" title="Inferred from the aircraft's position — route database said ${esc(db)}">≈</span>`;
   }
-  return `<b title="${esc(a.name || '')}">${code}</b> <span class="muted">${esc(a.city || '')}</span>${tag}`;
+  const place = [a.city, countryName(a.country)].filter(Boolean).join(', ');
+  return `<b title="${esc(a.name || '')}">${code}</b> <span class="muted">${esc(place)}</span>${tag}`;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function compass(b) { return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(b / 45) % 8]; }
@@ -237,11 +265,17 @@ function select(hex, pan) {
 function initFromConfig() {
   const { home, radiusKm } = state.config;
   document.getElementById('home-name').textContent = `${home.name} · ${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
-  document.getElementById('stat-radius').textContent = radiusKm;
   drawHouse(home);
-  map.fitBounds(L.latLng(home.lat, home.lon).toBounds(radiusKm * 2000), { padding: [10, 10] });
-  document.getElementById('zoom-home').onclick = () => map.setView([home.lat, home.lon], 17);
-  document.getElementById('zoom-all').onclick = () => map.fitBounds(L.latLng(home.lat, home.lon).toBounds(radiusKm * 2000), { padding: [10, 10] });
+  map.on('moveend', () => {
+    updateViewRadius();
+    applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
+  });
+  viewRadius(DEFAULT_VIEW_KM);
+  updateViewRadius();
+  document.getElementById('zoom-home').onclick = () => viewRadius(DEFAULT_VIEW_KM);
+  document.getElementById('zoom-all').onclick = () => viewRadius(radiusKm);
+  document.getElementById('zoom-all').textContent = `Max · ${radiusKm} km`;
+  document.getElementById('stat-radius').parentElement.title = `Search radius follows the zoom level (max ${radiusKm} km)`;
   requestAnimationFrame(animate);
 }
 

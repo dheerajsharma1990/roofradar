@@ -48,11 +48,11 @@ section h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter
 .flight .cs { font-weight: 700; font-size: 15px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .flight .airline { color: var(--muted); font-size: 12px; }
 .flight .dist { font-variant-numeric: tabular-nums; color: var(--accent-2); font-weight: 600; }
-.flight .route { margin: 4px 0; font-size: 13px; }
+.flight .route { margin: 4px 0; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
 .flight .route .arrow { color: var(--muted); margin: 0 6px; }
 .flight .route .unknown { color: var(--muted); font-style: italic; }
 .flight .route .inferred { color: var(--accent-2); font-weight: 700; cursor: help; }
-.flight .route .fit { float: right; font-size: 11px; color: var(--accent); text-decoration: none; }
+.flight .route .fit { margin-left: auto; font-size: 11px; color: var(--accent); text-decoration: none; }
 .flight .route .fit:hover { text-decoration: underline; }
 .flight .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; font-size: 12px; margin-top: 6px; }
 .flight .grid div { color: var(--muted); white-space: nowrap; }
