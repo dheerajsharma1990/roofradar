@@ -1,0 +1,22 @@
+[Unit]
+Description=RoofRadar — live aircraft map around the house (port 8420)
+Documentation=file:///home/randompc/roofradar/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=randompc
+WorkingDirectory=/home/randompc/roofradar
+ExecStart=/usr/bin/node /home/randompc/roofradar/server.js
+Environment=NODE_ENV=production
+# Restart on crash and on clean exit; the map should always be up.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+# Logs go to the journal: `journalctl -u roofradar -f`.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

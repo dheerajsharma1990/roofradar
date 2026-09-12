@@ -1,0 +1,4 @@
+node_modules/
+*.log
+# your real home coordinates live here — copy from config.example.json
+config.json

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RoofRadar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛩️</text></svg>" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="brand">
+        <span class="logo">🛩️</span>
+        <div>
+          <h1>RoofRadar</h1>
+          <div class="sub" id="home-name">—</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span id="stat-count">0</span><label>aircraft</label></div>
+        <div class="stat"><span id="stat-radius">–</span><label>km radius</label></div>
+        <div class="stat"><span id="stat-age">–</span><label>data age</label></div>
+        <div class="stat status" id="status" title="connection">●</div>
+      </div>
+    </header>
+
+    <main>
+      <div id="map"></div>
+
+      <aside id="panel">
+        <section class="controls">
+          <button id="zoom-home" class="btn">Zoom to house</button>
+          <button id="zoom-all" class="btn ghost">Show whole radius</button>
+        </section>
+
+        <section class="list-card">
+          <div class="list-head"><h2>Flights nearby <span class="muted" id="list-hint">sorted by distance</span></h2><label class="chk"><input type="checkbox" id="hide-ground" checked> hide ground</label></div>
+          <div id="list"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

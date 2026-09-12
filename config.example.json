@@ -1,0 +1,10 @@
+{
+  "home": {
+    "name": "Home — Uithoorn",
+    "lat": 52.2388,
+    "lon": 4.8202
+  },
+  "radiusKm": 30,
+  "pollIntervalMs": 3000,
+  "port": 8420
+}
