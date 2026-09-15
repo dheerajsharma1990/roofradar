@@ -35,6 +35,16 @@
           <button id="zoom-all" class="btn ghost">Max · 30 km</button>
         </section>
 
+        <section class="alt-filter" aria-label="Altitude filter">
+          <h2>Altitude</h2>
+          <div class="seg" id="alt-filter">
+            <button class="active" data-band="all">All</button>
+            <button data-band="low">&lt; 5 km</button>
+            <button data-band="mid">5–10 km</button>
+            <button data-band="high">&gt; 10 km</button>
+          </div>
+        </section>
+
         <section class="list-card">
           <div class="list-head"><h2>Flights nearby <span class="muted" id="list-hint">sorted by distance</span></h2><label class="chk"><input type="checkbox" id="hide-ground" checked> hide ground</label></div>
           <div id="list"></div>

@@ -40,6 +40,13 @@ section h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter
 .btn { flex: 1; margin-top: 0; padding: 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #04121a; font-weight: 600; cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--accent); }
 
+.alt-filter h2 { margin-bottom: 6px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; padding: 6px 4px; border: 0; border-right: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.seg button:last-child { border-right: 0; }
+.seg button:hover { color: var(--text); }
+.seg button.active { background: var(--accent); color: #04121a; font-weight: 600; }
+
 .list-card { flex: 1; }
 #list:empty::after { content: "No aircraft in range right now."; color: var(--muted); font-size: 13px; }
 .flight { padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; transition: border-color .15s; }

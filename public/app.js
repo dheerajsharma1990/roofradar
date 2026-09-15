@@ -2,7 +2,7 @@
 
 const KT_TO_KMH = 1.852;
 const FT_TO_M = 0.3048;
-const state = { config: null, planes: new Map(), selected: null, lastTs: 0, hideGround: true, lastList: [], viewRadiusKm: 0 };
+const state = { config: null, planes: new Map(), selected: null, lastTs: 0, hideGround: true, altBand: 'all', lastList: [], viewRadiusKm: 0 };
 const DEFAULT_VIEW_KM = 5;
 const regionNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
 function countryName(iso) {
@@ -97,7 +97,7 @@ function applyUpdate(data) {
 
   const seen = new Set();
   state.lastList = data.aircraft;
-  const visible = data.aircraft.filter((ac) => !(state.hideGround && ac.onGround) && ac.distKm <= state.viewRadiusKm + 0.05);
+  const visible = data.aircraft.filter((ac) => !(state.hideGround && ac.onGround) && inAltBand(ac) && ac.distKm <= state.viewRadiusKm + 0.05);
   for (const ac of visible) {
     seen.add(ac.hex);
     let p = state.planes.get(ac.hex);
@@ -134,6 +134,14 @@ function applyUpdate(data) {
   document.getElementById('stat-count').textContent = visible.length;
   renderList(visible);
   drawRoute(state.planes.get(state.selected));
+}
+
+// altitude bands (in km above sea level): low < 5, mid 5–10, high > 10
+const ALT_BANDS = { all: [-Infinity, Infinity], low: [-Infinity, 5], mid: [5, 10], high: [10, Infinity] };
+function inAltBand(ac) {
+  const [lo, hi] = ALT_BANDS[state.altBand] || ALT_BANDS.all;
+  const km = ac.onGround ? 0 : (ac.altFt ?? 0) * FT_TO_M / 1000;
+  return km >= lo && km < hi;
 }
 
 function labelFor(ac) {
@@ -281,8 +289,14 @@ function initFromConfig() {
 
 document.getElementById('hide-ground').addEventListener('change', (e) => {
   state.hideGround = e.target.checked;
-  applyUpdate({ ts: state.lastTs, error: null, aircraft: state.lastList, config: state.config });
+  applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
 });
+
+document.querySelectorAll('#alt-filter button').forEach((b) => b.addEventListener('click', () => {
+  state.altBand = b.dataset.band;
+  document.querySelectorAll('#alt-filter button').forEach((n) => n.classList.toggle('active', n === b));
+  applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
+}));
 
 setInterval(() => {
   const age = state.lastTs ? Math.round((Date.now() - state.lastTs) / 1000) : null;
