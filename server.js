@@ -55,6 +55,9 @@ const clients = new Set();    // SSE responses
 // ---------- route cache (callsign -> {airline, candidates:[{src,from,to}]}) ----------
 const routeCache = new Map(); // callsign -> { data|null, expires }
 const airportCache = new Map(); // ICAO -> airport|null
+// hexdb only knows an airport's region ("Bayern"); adsbdb has the city people
+// know ("Munich"). Remember every city adsbdb tells us, per ICAO.
+const cityByIcao = new Map();
 const AIRPORT_TTL_MS = 30 * 24 * 3600 * 1000;
 const routeQueue = [];
 const queued = new Set();
@@ -102,18 +105,19 @@ async function lookupRoute(cs) {
   const candidates = [];
   let airline = null, iata = null;
 
-  // hexdb: { route: "EHAM-WSSS" } (can be multi-leg "EHAM-DXB-WSSS": take the ends)
-  const legs = (hexdb?.route || '').split('-').filter(Boolean);
-  if (legs.length >= 2) {
-    const [from, to] = await Promise.all([airportByIcao(legs[0]), airportByIcao(legs[legs.length - 1])]);
-    if (from || to) candidates.push({ src: 'hexdb', from, to });
-  }
-
+  // adsbdb first so its city names are known before the hexdb airports are built
   const fr = adsbdb?.response?.flightroute;
   if (fr) {
     airline = fr.airline?.name || null;
     iata = fr.callsign_iata || null;
     candidates.push({ src: 'adsbdb', from: airport(fr.origin), to: airport(fr.destination) });
+  }
+
+  // hexdb: { route: "EHAM-WSSS" } (can be multi-leg "EHAM-DXB-WSSS": take the ends)
+  const legs = (hexdb?.route || '').split('-').filter(Boolean);
+  if (legs.length >= 2) {
+    const [from, to] = await Promise.all([airportByIcao(legs[0]), airportByIcao(legs[legs.length - 1])]);
+    if (from || to) candidates.unshift({ src: 'hexdb', from: withKnownCity(from), to: withKnownCity(to) });
   }
   return candidates.length ? { airline, iata, candidates } : null;
 }
@@ -125,14 +129,25 @@ async function airportByIcao(icao) {
   let data = local ? { ...local } : null;
   if (!data) {
     const j = await getJson(HEXDB_AIRPORT_URL + encodeURIComponent(icao)).catch(() => null);
-    if (j?.icao) data = { iata: j.iata || null, icao: j.icao, name: j.airport || null, city: j.region_name || null, country: j.country_code || null, lat: j.latitude, lon: j.longitude };
+    if (j?.icao) data = { iata: j.iata || null, icao: j.icao, name: j.airport || null, city: cityFromName(j.airport) || j.region_name || null, country: j.country_code || null, lat: j.latitude, lon: j.longitude };
   }
   airportCache.set(icao, { data, expires: Date.now() + AIRPORT_TTL_MS });
   return data;
 }
 
+// "Keflavík International Airport" -> "Keflavík"; used when adsbdb hasn't told us the city
+function cityFromName(name) {
+  if (!name) return null;
+  const s = name.replace(/\b(international|intl\.?|regional|municipal|airport|airfield|aerodrome|air base)\b/gi, '').replace(/\s+/g, ' ').trim();
+  return s || null;
+}
+function withKnownCity(ap) {
+  return ap && { ...ap, city: cityByIcao.get(ap.icao) || ap.city };
+}
+
 function airport(a) {
   if (!a) return null;
+  if (a.icao_code && a.municipality) cityByIcao.set(a.icao_code, a.municipality);
   return {
     iata: a.iata_code || null,
     icao: a.icao_code || null,
