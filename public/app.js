@@ -2,8 +2,24 @@
 
 const KT_TO_KMH = 1.852;
 const FT_TO_M = 0.3048;
-const state = { config: null, planes: new Map(), selected: null, lastTs: 0, hideGround: true, altBand: 'all', lastList: [], viewRadiusKm: 0 };
-const DEFAULT_VIEW_KM = 5;
+const state = { config: null, planes: new Map(), selected: null, lastTs: 0, altBand: 'all', lastList: [] };
+// What you can see from the house: azimuth sector + elevation band (degrees
+// above the horizon) + max distance. This is the only filter; the map zoom isn't.
+const WIN_KEY = 'roofradar.window';
+// Width/elevation/distance reset to these on every load; only the direction
+// the window faces (fixed for a given house) is remembered.
+const WIN_DEFAULTS = {
+  fov: 150,    // close to the glass you can look from one end of the window to the other
+  minEl: 3,    // low enough to catch Schiphol take-offs and landings a few km out
+  maxEl: 80,   // tilting your head back at the glass; 90° would be straight overhead
+  maxKm: 100,  // past this a jet is a dot in the haze; at 5° up it is ~120 km out anyway
+};
+const win = { az: 180, ...WIN_DEFAULTS };
+try {
+  const saved = JSON.parse(localStorage.getItem(WIN_KEY)) || {};
+  if (Number.isFinite(saved.az)) win.az = saved.az;
+} catch {}
+function saveWin() { try { localStorage.setItem(WIN_KEY, JSON.stringify({ az: win.az })); } catch {} }
 const regionNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
 function countryName(iso) {
   if (!iso) return '';
@@ -37,31 +53,10 @@ function drawHouse(home) {
     icon: L.divIcon({ className: 'house-marker', html: '🏠', iconSize: [26, 26], iconAnchor: [13, 13] }),
     interactive: false,
   }).bindTooltip(home.name, { direction: 'top', offset: [0, -12], className: 'plane-label' }).addTo(layers.house);
-  L.circle([home.lat, home.lon], { radius: state.config.radiusKm * 1000, color: '#4fc3f7', weight: 1, dashArray: '6 6', fill: false }).addTo(layers.house);
-  for (const r of [5, 10, 20]) {
-    if (r < state.config.radiusKm) L.circle([home.lat, home.lon], { radius: r * 1000, color: '#4fc3f7', weight: 1, opacity: 0.35, dashArray: '2 6', fill: false }).addTo(layers.house);
+  // faint distance rings for scale
+  for (const r of [5, 10, 25, 50, 100]) {
+    L.circle([home.lat, home.lon], { radius: r * 1000, color: '#4fc3f7', weight: 1, opacity: 0.3, dashArray: '2 6', fill: false, interactive: false }).addTo(layers.house);
   }
-  viewRing = L.circle([home.lat, home.lon], { radius: 1000, color: '#4fc3f7', weight: 1.5, opacity: 0.8, fill: true, fillColor: '#4fc3f7', fillOpacity: 0.04, interactive: false }).addTo(layers.house);
-}
-
-// ---------- search radius follows the zoom level ----------
-// The server always tracks the full config radius; the browser only shows what
-// fits on screen: half the smaller viewport dimension, capped at the max radius.
-let viewRing = null;
-function viewRadiusKm() {
-  const b = map.getBounds(), c = map.getCenter();
-  const halfW = c.distanceTo(L.latLng(c.lat, b.getEast())) / 1000;
-  const halfH = c.distanceTo(L.latLng(b.getNorth(), c.lng)) / 1000;
-  return Math.min(state.config.radiusKm, Math.min(halfW, halfH));
-}
-function updateViewRadius() {
-  state.viewRadiusKm = viewRadiusKm();
-  document.getElementById('stat-radius').textContent = state.viewRadiusKm < 10 ? state.viewRadiusKm.toFixed(1) : Math.round(state.viewRadiusKm);
-  if (viewRing) viewRing.setRadius(state.viewRadiusKm * 1000);
-}
-function viewRadius(km) {
-  const { home } = state.config;
-  map.fitBounds(L.latLng(home.lat, home.lon).toBounds(km * 2000), { padding: [0, 0] });
 }
 
 // ---------- plane icon ----------
@@ -97,7 +92,9 @@ function applyUpdate(data) {
 
   const seen = new Set();
   state.lastList = data.aircraft;
-  const visible = data.aircraft.filter((ac) => !(state.hideGround && ac.onGround) && inAltBand(ac) && ac.distKm <= state.viewRadiusKm + 0.05);
+  // ground traffic is never visible from the house, so it is always left out
+  const visible = data.aircraft.filter((ac) => !ac.onGround && inAltBand(ac) && inView(ac));
+  visible.sort((a, b) => b.elevDeg - a.elevDeg); // highest in the sky (easiest to spot) first
   for (const ac of visible) {
     seen.add(ac.hex);
     let p = state.planes.get(ac.hex);
@@ -133,20 +130,36 @@ function applyUpdate(data) {
   }
   document.getElementById('stat-count').textContent = visible.length;
   renderList(visible);
+  renderInfo();
   drawRoute(state.planes.get(state.selected));
 }
 
-// altitude bands (in km above sea level): low < 5, mid 5–10, high > 10
-const ALT_BANDS = { all: [-Infinity, Infinity], low: [-Infinity, 5], mid: [5, 10], high: [10, Infinity] };
+// altitude bands (in km above sea level): low < 5 is take-off/landing traffic, high is en route
+const ALT_BANDS = { all: [-Infinity, Infinity], low: [-Infinity, 5], high: [5, Infinity] };
 function inAltBand(ac) {
   const [lo, hi] = ALT_BANDS[state.altBand] || ALT_BANDS.all;
-  const km = ac.onGround ? 0 : (ac.altFt ?? 0) * FT_TO_M / 1000;
+  const km = (ac.altFt ?? 0) * FT_TO_M / 1000;
   return km >= lo && km < hi;
 }
 
+// signed difference b - a in degrees, in (-180, 180]
+function angDiff(a, b) { return ((b - a + 540) % 360) - 180; }
+function inView(ac) {
+  return ac.elevDeg != null && ac.distKm <= win.maxKm && ac.elevDeg >= win.minEl && ac.elevDeg <= win.maxEl
+    && Math.abs(angDiff(win.az, ac.bearing)) <= win.fov / 2;
+}
+// where to look relative to the centre of the window, e.g. "12° up · 20° left"
+function lookHtml(ac) {
+  if (win.fov >= 360) return `${Math.round(ac.elevDeg)}° up · ${compass(ac.bearing)}`;
+  const off = Math.round(angDiff(win.az, ac.bearing));
+  const side = Math.abs(off) < 3 ? 'ahead' : `${Math.abs(off)}° ${off < 0 ? 'left' : 'right'}`;
+  return `${Math.round(ac.elevDeg)}° up · ${side}`;
+}
+
+// short map label: callsign + how high to look; altitude is in the icon colour and the card
 function labelFor(ac) {
-  const alt = ac.onGround ? 'GND' : `${Math.round(ac.altFt * FT_TO_M)} m`;
-  return `${ac.callsign || ac.reg || ac.hex} · ${alt}`;
+  const el = ac.elevDeg != null ? ` ${Math.round(ac.elevDeg)}°` : '';
+  return `${ac.callsign || ac.reg || ac.hex}${el}`;
 }
 
 // ---------- dead reckoning between polls (smooth motion) ----------
@@ -231,14 +244,12 @@ function vrHtml(vr) {
   return vr > 0 ? `<span class="vr-up">▲${ms} m/s</span>` : `<span class="vr-down">▼${Math.abs(ms)} m/s</span>`;
 }
 
-function renderList(list) {
-  const el = document.getElementById('list');
-  el.innerHTML = list.map((ac) => {
+function flightHtml(ac, extra = '') {
     const r = ac.route;
-    return `<div class="flight ${state.selected === ac.hex ? 'selected' : ''}" data-hex="${ac.hex}">
+    return `<div class="flight ${state.selected === ac.hex ? 'selected' : ''}" data-hex="${ac.hex}">${extra}
       <div class="row1">
         <div><span class="cs">${esc(ac.callsign || ac.reg || ac.hex)}</span> <span class="airline">${esc(r?.airline || '')}</span></div>
-        <div class="dist">${ac.distKm.toFixed(1)} km ${compass(ac.bearing)}</div>
+        <div class="dist">${lookHtml(ac)}</div>
       </div>
       <div class="route">${fmtAirport(r?.from, r?.inferred === 'from' ? r.dbFrom : undefined)}<span class="arrow">→</span>${fmtAirport(r?.to, r?.inferred === 'to' ? r.dbTo : undefined)}${r ? ' <a class="fit" data-fit="' + ac.hex + '" href="#">fit route</a>' : ''}</div>
       <div class="grid">
@@ -246,18 +257,104 @@ function renderList(list) {
         <div>Speed <b>${ac.gsKt != null ? Math.round(ac.gsKt * KT_TO_KMH) + ' km/h' : '–'}</b></div>
         <div>Heading <b>${ac.track != null ? Math.round(ac.track) + '° ' + compass(ac.track) : '–'}</b></div>
         <div>Climb <b>${vrHtml(ac.vrFpm)}</b></div>
-        <div>Squawk <b>${ac.squawk || '–'}</b></div>
+        <div>Dist <b>${ac.distKm < 10 ? ac.distKm.toFixed(1) : Math.round(ac.distKm)} km ${compass(ac.bearing)}</b></div>
         <div>Reg <b>${esc(ac.reg || '–')}</b></div>
       </div>
       <div class="type">${esc(ac.type || '')} ${esc(ac.desc || '')}</div>
     </div>`;
-  }).join('');
-  el.querySelectorAll('.flight').forEach((n) => n.addEventListener('click', () => select(n.dataset.hex, true)));
+}
+function bindFit(el) {
   el.querySelectorAll('.fit').forEach((n) => n.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
     if (state.selected !== n.dataset.fit) select(n.dataset.fit, false);
     fitRoute(n.dataset.fit);
   }));
+}
+
+function renderList(list) {
+  const el = document.getElementById('list');
+  el.innerHTML = list.map((ac) => flightHtml(ac)).join('');
+  el.querySelectorAll('.flight').forEach((n) => n.addEventListener('click', () => select(n.dataset.hex, true)));
+  bindFit(el);
+}
+
+// floating card over the map for the selected plane, so a tap on a marker shows its details right away
+function renderInfo() {
+  const el = document.getElementById('info');
+  const p = state.planes.get(state.selected);
+  el.hidden = !p;
+  if (!p) { el.innerHTML = ''; return; }
+  el.innerHTML = flightHtml(p.data, '<button class="close" aria-label="Close">×</button>');
+  el.querySelector('.close').addEventListener('click', (e) => { e.stopPropagation(); select(state.selected); });
+  bindFit(el);
+}
+
+// ---------- window view ----------
+let sector = null;
+function bearingTo(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+function sectorPoints() {
+  const { home } = state.config;
+  const pts = win.fov >= 360 ? [] : [[home.lat, home.lon]]; // all around is a plain circle
+  const steps = Math.max(8, Math.round(win.fov / 3));
+  for (let i = 0; i <= steps; i++) {
+    const th = ((win.az - win.fov / 2 + (win.fov * i) / steps) * Math.PI) / 180;
+    pts.push(metersToLatLng(home.lat, home.lon, win.maxKm * 1000 * Math.sin(th), win.maxKm * 1000 * Math.cos(th)));
+  }
+  return pts;
+}
+function drawSector() {
+  if (sector) { layers.house.removeLayer(sector); sector = null; }
+  sector = L.polygon(sectorPoints(), { color: '#ffb74d', weight: 1.5, opacity: 0.8, fillColor: '#ffb74d', fillOpacity: 0.06, interactive: false }).addTo(layers.house);
+}
+function fitSector() { map.fitBounds(L.latLngBounds(sectorPoints()), { padding: [20, 20] }); }
+function refresh() { applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config }); }
+
+const WIN_SLIDERS = {
+  az: ['w-az', (v) => `${v}° ${compass(v)}`],
+  fov: ['w-fov', (v) => (v >= 360 ? 'all around' : `${v}°`)],
+  minEl: ['w-min', (v) => `${v}° up`],
+  maxEl: ['w-max', (v) => `${v}° up`],
+  maxKm: ['w-dist', (v) => `${v} km`],
+};
+function syncWinControls() {
+  for (const [key, [id, fmt]] of Object.entries(WIN_SLIDERS)) {
+    document.getElementById(id).value = win[key];
+    document.getElementById(id + '-out').textContent = fmt(win[key]);
+  }
+  const dir = win.fov >= 360 ? 'all around' : `${compass(win.az)} ${win.az}° · ${win.fov}° wide`;
+  document.getElementById('w-summary').textContent = `${dir} · ${win.minEl}–${win.maxEl}° up · ${win.maxKm} km`;
+}
+function initWindow() {
+  const sky = state.config.skyRadiusKm || state.config.radiusKm;
+  document.getElementById('w-dist').max = sky;
+  win.maxKm = Math.min(win.maxKm, sky);
+  syncWinControls();
+  for (const [key, [id]] of Object.entries(WIN_SLIDERS)) {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      win[key] = Number(el.value);
+      // keep the elevation band valid
+      if (key === 'minEl' && win.minEl >= win.maxEl) win.maxEl = Math.min(90, win.minEl + 1);
+      if (key === 'maxEl' && win.maxEl <= win.minEl) win.minEl = Math.max(0, win.maxEl - 1);
+      syncWinControls(); saveWin(); drawSector(); refresh();
+    });
+    if (key === 'az' || key === 'maxKm' || key === 'fov') el.addEventListener('change', fitSector);
+  }
+  const aim = document.getElementById('w-aim');
+  let aiming = false;
+  const setAiming = (on) => { aiming = on; aim.classList.toggle('aiming', on); map.getContainer().classList.toggle('aim', on); aim.textContent = on ? 'Now tap the map…' : 'Aim: tap the map where your window looks'; };
+  aim.addEventListener('click', () => setAiming(!aiming));
+  map.on('click', (e) => {
+    if (!aiming) { if (state.selected) select(state.selected); return; } // tap empty map closes the card
+    const { home } = state.config;
+    win.az = Math.round(bearingTo(home.lat, home.lon, e.latlng.lat, e.latlng.lng)) % 360;
+    setAiming(false); syncWinControls(); saveWin(); drawSector(); refresh(); fitSector();
+  });
 }
 
 function select(hex, pan) {
@@ -266,36 +363,38 @@ function select(hex, pan) {
   document.querySelectorAll('.flight').forEach((n) => n.classList.toggle('selected', n.dataset.hex === state.selected));
   const p = state.planes.get(state.selected);
   drawRoute(p);
+  renderInfo();
   if (pan && p) map.panTo(p.marker.getLatLng());
 }
 
 // ---------- init ----------
 function initFromConfig() {
-  const { home, radiusKm } = state.config;
+  const { home } = state.config;
   document.getElementById('home-name').textContent = `${home.name} · ${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
   drawHouse(home);
-  map.on('moveend', () => {
-    updateViewRadius();
-    applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
+  initWindow();
+  drawSector();
+  fitSector();
+  // map button to get back to the whole view after panning/zooming around
+  const FitControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+      const a = L.DomUtil.create('a', 'fit-ctl', box);
+      a.href = '#'; a.title = 'Show my whole view'; a.setAttribute('role', 'button'); a.textContent = '⌂';
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(a, 'click', (e) => { L.DomEvent.preventDefault(e); fitSector(); });
+      return box;
+    },
   });
-  viewRadius(DEFAULT_VIEW_KM);
-  updateViewRadius();
-  document.getElementById('zoom-home').onclick = () => viewRadius(DEFAULT_VIEW_KM);
-  document.getElementById('zoom-all').onclick = () => viewRadius(radiusKm);
-  document.getElementById('zoom-all').textContent = `Max · ${radiusKm} km`;
-  document.getElementById('stat-radius').parentElement.title = `Search radius follows the zoom level (max ${radiusKm} km)`;
+  map.addControl(new FitControl());
   requestAnimationFrame(animate);
 }
-
-document.getElementById('hide-ground').addEventListener('change', (e) => {
-  state.hideGround = e.target.checked;
-  applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
-});
 
 document.querySelectorAll('#alt-filter button').forEach((b) => b.addEventListener('click', () => {
   state.altBand = b.dataset.band;
   document.querySelectorAll('#alt-filter button').forEach((n) => n.classList.toggle('active', n === b));
-  applyUpdate({ ts: state.lastTs, error: null, source: 'view', aircraft: state.lastList, config: state.config });
+  refresh();
 }));
 
 setInterval(() => {

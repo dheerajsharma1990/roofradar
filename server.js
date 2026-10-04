@@ -11,8 +11,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 
 const KM_PER_NM = 1.852;
-// Fetch a little wider than the display radius so planes appear at the edge smoothly.
-const fetchRadiusNm = Math.min(250, Math.ceil((config.radiusKm + 3) / KM_PER_NM));
+// Beyond radiusKm we still track aircraft out to skyRadiusKm, but only those
+// above the horizon from the house: high traffic you can see from a window.
+const skyRadiusKm = Math.max(config.radiusKm, config.skyRadiusKm ?? 150);
+const observerM = config.home.heightM ?? 10; // eye height above ground (floor + window)
+// Fetch a little wider than the tracked radius so planes appear at the edge smoothly.
+const fetchRadiusNm = Math.min(250, Math.ceil((skyRadiusKm + 3) / KM_PER_NM));
 // Two community feeds with the same readsb JSON shape; we fail over between them.
 const SOURCES = [
   { name: 'adsb.lol', url: `https://api.adsb.lol/v2/point/${config.home.lat}/${config.home.lon}/${fetchRadiusNm}`, key: 'ac' },
@@ -186,6 +190,16 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Elevation above the horizon and line-of-sight distance from the house,
+// accounting for earth curvature and standard optical refraction (k ≈ 0.14).
+const R_EFF_M = 6371000 / (1 - 0.14);
+function lookAngles(distKm, altM) {
+  const th = (distKm * 1000) / R_EFF_M;
+  const r = R_EFF_M + altM, r0 = R_EFF_M + observerM;
+  const up = r * Math.cos(th) - r0, across = r * Math.sin(th);
+  return { elevDeg: toDeg(Math.atan2(up, across)), slantKm: Math.hypot(up, across) / 1000 };
+}
+
 function bearingDeg(lat1, lon1, lat2, lon2) {
   const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
   const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
@@ -201,10 +215,15 @@ function normalise(ac) {
   const onGround = ac.alt_baro === 'ground' || (rawAlt != null && rawAlt <= 50 && (ac.gs ?? 0) < 60);
   const altFt = onGround ? 0 : rawAlt;
   const dist = distanceKm(config.home.lat, config.home.lon, ac.lat, ac.lon);
-  if (dist > config.radiusKm) return null;
+  if (dist > skyRadiusKm) return null;
+  // geometric altitude is what matters for sight lines; fall back to baro
+  const lookFt = onGround ? 0 : typeof ac.alt_geom === 'number' ? ac.alt_geom : rawAlt;
+  const look = lookFt != null ? lookAngles(dist, lookFt * 0.3048) : null;
+  if (dist > config.radiusKm && !(look?.elevDeg > 0)) return null; // far and below the horizon
   const vrFpm = ac.baro_rate ?? ac.geom_rate ?? null;
   const route = callsign ? pickRoute(routeCache.get(callsign)?.data, ac, altFt, vrFpm) : null;
-  if (callsign) enqueueRoute(callsign);
+  // far-away low-on-the-horizon traffic would flood the route DBs; skip it
+  if (callsign && (dist <= config.radiusKm || look.elevDeg >= 2)) enqueueRoute(callsign);
   return {
     hex: ac.hex,
     callsign: callsign || null,
@@ -223,6 +242,8 @@ function normalise(ac) {
     seen: ac.seen ?? null,
     distKm: Math.round(dist * 100) / 100,
     bearing: Math.round(bearingDeg(config.home.lat, config.home.lon, ac.lat, ac.lon)),
+    elevDeg: look ? Math.round(look.elevDeg * 10) / 10 : null,
+    slantKm: look ? Math.round(look.slantKm * 10) / 10 : null,
     route,
   };
 }
@@ -257,7 +278,7 @@ async function poll() {
 }
 
 function snapshot() {
-  return { ts: lastUpdate, error: lastError, source: lastSource, aircraft, config: { home: config.home, radiusKm: config.radiusKm, pollIntervalMs: config.pollIntervalMs } };
+  return { ts: lastUpdate, error: lastError, source: lastSource, aircraft, config: { home: config.home, radiusKm: config.radiusKm, skyRadiusKm, pollIntervalMs: config.pollIntervalMs } };
 }
 
 function broadcast() {
@@ -300,7 +321,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(config.port, () => {
   console.log(`RoofRadar listening on http://localhost:${config.port}`);
-  console.log(`Home: ${config.home.lat}, ${config.home.lon}  radius: ${config.radiusKm} km  sources: ${SOURCES.map((s) => s.name).join(', ')}`);
+  console.log(`Home: ${config.home.lat}, ${config.home.lon}  radius: ${config.radiusKm} km (sky ${skyRadiusKm} km)  sources: ${SOURCES.map((s) => s.name).join(', ')}`);
   poll();
 });
 

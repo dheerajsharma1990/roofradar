@@ -30,17 +30,21 @@ h1 { margin: 0; font-size: 18px; letter-spacing: .5px; }
 .status.bad { color: var(--bad); }
 
 main { flex: 1; display: flex; min-height: 0; }
+.map-wrap { flex: 1; position: relative; display: flex; min-height: 0; }
 #map { flex: 1; background: #0b0e13; }
+#info { position: absolute; left: 10px; bottom: 24px; z-index: 1000; width: min(360px, calc(100% - 20px)); }
+#info .flight { margin: 0; position: relative; padding-right: 34px; border-color: var(--accent); cursor: default; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+#info .close { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+#info .close:hover { color: var(--text); }
 aside#panel { width: 360px; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
 section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
 section h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
 .muted { color: var(--muted); font-weight: normal; text-transform: none; letter-spacing: 0; font-size: 11px; }
 
-.controls { display: flex; gap: 8px; }
+.controls { display: flex; flex-direction: column; gap: 8px; }
 .btn { flex: 1; margin-top: 0; padding: 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #04121a; font-weight: 600; cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--accent); }
 
-.alt-filter h2 { margin-bottom: 6px; }
 .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .seg button { flex: 1; padding: 6px 4px; border: 0; border-right: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .seg button:last-child { border-right: 0; }
@@ -86,4 +90,42 @@ section h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter
 }
 
 .list-head { display: flex; justify-content: space-between; align-items: baseline; }
-.chk { font-size: 11px; color: var(--muted); display: flex; gap: 4px; align-items: center; cursor: pointer; }
+
+.btn.small { padding: 6px 8px; font-size: 12px; font-weight: 500; width: 100%; }
+.btn.aiming { background: var(--accent-2); border-color: var(--accent-2); color: #04121a; }
+.window-controls { display: flex; flex-direction: column; gap: 8px; }
+.window-controls[hidden] { display: none; }
+.slider { display: grid; grid-template-columns: 64px 1fr 76px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.slider input { width: 100%; accent-color: var(--accent); }
+.slider output { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+.hint { margin: 0; font-size: 11px; color: var(--muted); }
+.leaflet-container.aim { cursor: crosshair; }
+[hidden] { display: none !important; }
+
+/* which-planes switch with a short explanation under each choice */
+.seg.tall button { padding: 7px 4px; line-height: 1.25; }
+.seg.tall button small { display: block; font-size: 10px; font-weight: 400; opacity: .75; white-space: normal; }
+
+/* window setup: one summary line, sliders on demand */
+#window-setup { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+#window-setup summary { padding: 8px 10px; cursor: pointer; font-size: 12px; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+#window-setup summary::-webkit-details-marker { display: none; }
+#window-setup summary::before { content: "▸"; color: var(--muted); }
+#window-setup[open] summary::before { content: "▾"; }
+#window-setup .sum-title { font-weight: 600; color: var(--accent-2); }
+#window-setup .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#window-setup .window-controls { padding: 4px 10px 10px; }
+.fit-ctl { font-size: 18px; font-weight: 700; }
+
+@media (max-width: 800px) {
+  header { padding: 6px 12px; gap: 8px; }
+  .logo { font-size: 20px; }
+  h1 { font-size: 15px; }
+  .sub { display: none; }
+  .stats { gap: 12px; }
+  .stat { min-width: 40px; }
+  .stat span { font-size: 15px; }
+  .stat label { font-size: 9px; }
+  aside#panel { max-height: 45%; }
+  section { padding: 10px 12px; }
+}

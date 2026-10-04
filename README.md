@@ -7,7 +7,8 @@ with route (from → to), altitude, speed, heading and climb rate.
 - Routes from [hexdb.io](https://hexdb.io) and [adsbdb](https://www.adsbdb.com), airlines from adsbdb (cached per callsign)
 - Zero npm dependencies — Node 18+ built-ins only, Leaflet from CDN in the browser
 - Smooth motion between polls via dead reckoning, altitude-coloured icons, trails
-- Search radius follows the zoom: whatever fits on screen around the house (default 5 km) up to `radiusKm`; the server always tracks the full radius so zooming out is instant
+- **One view: what you can see from home.** Set the direction your window faces (slider, or tap a landmark on the map), how wide it is (360° = all around), the lowest/highest angle above the horizon you can see, and how far. Only aircraft inside that cone are shown, highest in the sky first, each with where to look ("12° up · 20° left"). Elevation accounts for earth curvature and refraction. Width, angles and distance reset to 150°, 3–80° and 100 km on every load; the facing direction is remembered per browser. Ground traffic is always hidden.
+- **All / Low / High**: everything in view, low traffic under 5 km (take-off & landing), or high traffic crossing over. Map zoom never filters; ⌂ on the map jumps back to the whole view.
 - Click a flight → great-circle route line origin → plane → destination ("fit route" zooms to it)
 
 ## Run
@@ -39,7 +40,9 @@ cp config.example.json config.json   # then edit
 | key | meaning |
 |---|---|
 | `home.lat`, `home.lon` | your house coordinates |
-| `radiusKm` | how far around the house to track |
+| `radiusKm` | the server tracks everything within this, even below the horizon (default 30) |
+| `skyRadiusKm` | optional, default 150: beyond `radiusKm` the server keeps tracking aircraft out to this distance, but only those above the horizon, for window view |
+| `home.heightM` | optional, default 10: your eye height above ground at the window, used for elevation angles |
 | `pollIntervalMs` | how often to ask adsb.lol (keep ≥ 2000) |
 | `port` | HTTP port |
 
@@ -47,6 +50,5 @@ cp config.example.json config.json   # then edit
 
 - adsb.lol, adsb.fi and adsbdb are free for personal, non-commercial use. adsb.lol rate-limits bursts from one IP; the poller backs off and switches feed automatically (hover the status dot to see which feed is live).
 - Routes are looked up by callsign and the databases can be stale (SIA333 is AMS→SIN in hexdb but CDG→SIN in adsbdb). The server asks both and picks the one consistent with the aircraft: a low, climbing plane must be within 80 km of its origin, a low, descending one within 80 km of its destination. If neither fits, that end is replaced by the nearest airport (≈ marker in the UI, hover for the DB value).
-- Within 10 km of Uithoorn you also see Schiphol apron traffic; the *hide ground* checkbox filters taxiing aircraft.
 - Uithoorn sits under Schiphol's Aalsmeerbaan approach/departure paths, so expect plenty of traffic.
 - Colours: red < 600 m, orange < 1.5 km, yellow < 3 km, green < 6 km, blue above; grey = on ground.

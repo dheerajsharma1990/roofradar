@@ -19,34 +19,51 @@
         </div>
       </div>
       <div class="stats">
-        <div class="stat"><span id="stat-count">0</span><label>aircraft</label></div>
-        <div class="stat" title="Search radius follows the zoom level (max 30 km)"><span id="stat-radius">–</span><label>km radius</label></div>
+        <div class="stat"><span id="stat-count">0</span><label>in view</label></div>
         <div class="stat"><span id="stat-age">–</span><label>data age</label></div>
         <div class="stat status" id="status" title="connection">●</div>
       </div>
     </header>
 
     <main>
-      <div id="map"></div>
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div id="info" hidden></div>
+      </div>
 
       <aside id="panel">
         <section class="controls">
-          <button id="zoom-home" class="btn">House · 5 km</button>
-          <button id="zoom-all" class="btn ghost">Max · 30 km</button>
-        </section>
-
-        <section class="alt-filter" aria-label="Altitude filter">
-          <h2>Altitude</h2>
-          <div class="seg" id="alt-filter">
-            <button class="active" data-band="all">All</button>
-            <button data-band="low">&lt; 5 km</button>
-            <button data-band="mid">5–10 km</button>
-            <button data-band="high">&gt; 10 km</button>
+          <div class="seg tall" id="alt-filter" aria-label="Which planes">
+            <button class="active" data-band="all">All<small>everything in view</small></button>
+            <button data-band="low">Low · &lt; 5 km<small>take-off &amp; landing</small></button>
+            <button data-band="high">High · &gt; 5 km<small>crossing over</small></button>
           </div>
+          <details id="window-setup">
+            <summary><span class="sum-title">Window</span> <span class="muted" id="w-summary"></span></summary>
+            <div class="window-controls">
+              <div class="slider">
+                <label for="w-az">Facing</label><input type="range" id="w-az" min="0" max="359" step="1"><output id="w-az-out"></output>
+              </div>
+              <button class="btn ghost small" id="w-aim">Aim: tap the map where your window looks</button>
+              <div class="slider">
+                <label for="w-fov">Width</label><input type="range" id="w-fov" min="10" max="360" step="5"><output id="w-fov-out"></output>
+              </div>
+              <div class="slider">
+                <label for="w-min">Lowest</label><input type="range" id="w-min" min="0" max="45" step="1"><output id="w-min-out"></output>
+              </div>
+              <div class="slider">
+                <label for="w-max">Highest</label><input type="range" id="w-max" min="5" max="90" step="1"><output id="w-max-out"></output>
+              </div>
+              <div class="slider">
+                <label for="w-dist">Distance</label><input type="range" id="w-dist" min="10" max="150" step="5"><output id="w-dist-out"></output>
+              </div>
+              <p class="hint">Angles are degrees above the horizon: rooftops and trees usually hide the first ~5°, 90° is straight overhead. Width 360° means all around (garden or balcony). A cruising jet at 11 km sits about 10° up at 60 km and 5° up at 120 km.</p>
+            </div>
+          </details>
         </section>
 
         <section class="list-card">
-          <div class="list-head"><h2>Flights nearby <span class="muted" id="list-hint">sorted by distance</span></h2><label class="chk"><input type="checkbox" id="hide-ground" checked> hide ground</label></div>
+          <div class="list-head"><h2>Visible now <span class="muted">highest in the sky first</span></h2></div>
           <div id="list"></div>
         </section>
       </aside>
